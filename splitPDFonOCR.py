@@ -63,6 +63,6 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
 
 # Example usage:
 pdf_path = 'example.pdf'  # Replace with your PDF file path
-search_text = 'Employee Number'  # Replace with the text you want to split by
+search_text = 'Endeavor'  # Replace with the text you want to split by
 output_dir = 'output'  # Directory to save the split files
 split_pdf_by_ocr_text(pdf_path, search_text, output_dir)
