@@ -33,14 +33,33 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
         text = ocr_text_from_image(image)
 
         if search_text in text:
+            # Extract the next 5 characters after 'Endeavor'
+            start_index = text.index(search_text) + len(search_text)
+            extracted_text = text[start_index : start_index + 5].strip()
+
+            # Replace invalid characters
+            invalid_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*']
+            for char in invalid_chars:
+                extracted_text = extracted_text.replace(char, '')
+
             if page_num > split_start:
                 # Create a new PDF writer object
                 pdf_writer = PdfWriter()
                 for i in range(split_start, page_num):
                     pdf_writer.add_page(pdf_reader.pages[i])
                 
+                # Generate a unique filename
+                base_filename = f"{extracted_text}.pdf"
+                output_filename = os.path.join(output_dir, base_filename)
+                file_exists = os.path.isfile(output_filename)
+                copy_number = 1
+                while file_exists:
+                    base_filename = f"{extracted_text} (copy {copy_number}).pdf"
+                    output_filename = os.path.join(output_dir, base_filename)
+                    file_exists = os.path.isfile(output_filename)
+                    copy_number += 1
+                
                 # Save the split PDF
-                output_filename = os.path.join(output_dir, f'split_{split_number}.pdf')
                 with open(output_filename, 'wb') as output_pdf:
                     pdf_writer.write(output_pdf)
                 
@@ -63,6 +82,6 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
 
 # Example usage:
 pdf_path = 'example.pdf'  # Replace with your PDF file path
-search_text = 'Endeavor'  # Replace with the text you want to split by
+search_text = 'Employee Number'  # Replace with the text you want to split by
 output_dir = 'output'  # Directory to save the split files
 split_pdf_by_ocr_text(pdf_path, search_text, output_dir)
