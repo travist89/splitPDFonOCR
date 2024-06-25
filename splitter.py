@@ -9,25 +9,35 @@ def ocr_text_from_image(image):
     return pytesseract.image_to_string(image)
 
 
-
 def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
+    # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
+
+    # Open the original PDF
     document = fitz.open(pdf_path)
     num_pages = document.page_count
     split_start = 0
     split_number = 1
+
+    # Create a PdfReader object
     pdf_reader = PdfReader(pdf_path)
+
     extracted_text_for_naming = ""  # Initialize the variable for naming files
 
     for page_num in range(num_pages):
         page = document.load_page(page_num)
+
+        # Convert PDF page to image
         images = convert_from_path(pdf_path, first_page=page_num+1, last_page=page_num+1)
         image = images[0]
+
+        # Extract text from image using OCR
         text = ocr_text_from_image(image)
 
         if search_text in text:
             start_index = text.index(search_text) + len(search_text)
             extracted_text = text[start_index : start_index + 8].strip()
+
             for char in ['<', '>', ':', '"', '/', '\\', '|', '?', '*']:
                 extracted_text = extracted_text.replace(char, '')
 
@@ -51,7 +61,7 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
                 print(f"Created: {output_filename}")
                 split_number += 1
                 split_start = page_num
-
+                
             extracted_text_for_naming = extracted_text  # Update the naming text for the next file
 
     # Handle the last split

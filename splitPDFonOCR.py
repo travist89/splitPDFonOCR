@@ -22,6 +22,8 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
     # Create a PdfReader object
     pdf_reader = PdfReader(pdf_path)
 
+
+
     for page_num in range(num_pages):
         page = document.load_page(page_num)
 
@@ -33,22 +35,17 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
         text = ocr_text_from_image(image)
 
         if search_text in text:
-            # Extract the next 5 characters after 'Endeavor'
             start_index = text.index(search_text) + len(search_text)
             extracted_text = text[start_index : start_index + 5].strip()
 
-            # Replace invalid characters
-            invalid_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*']
-            for char in invalid_chars:
+            for char in ['<', '>', ':', '"', '/', '\\', '|', '?', '*']:
                 extracted_text = extracted_text.replace(char, '')
 
             if page_num > split_start:
-                # Create a new PDF writer object
                 pdf_writer = PdfWriter()
                 for i in range(split_start, page_num):
                     pdf_writer.add_page(pdf_reader.pages[i])
                 
-                # Generate a unique filename
                 base_filename = f"{extracted_text}.pdf"
                 output_filename = os.path.join(output_dir, base_filename)
                 file_exists = os.path.isfile(output_filename)
@@ -59,15 +56,15 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
                     file_exists = os.path.isfile(output_filename)
                     copy_number += 1
                 
-                # Save the split PDF
                 with open(output_filename, 'wb') as output_pdf:
                     pdf_writer.write(output_pdf)
-                
                 print(f"Created: {output_filename}")
                 split_number += 1
                 split_start = page_num
 
-    # Save the remaining pages after the last split
+
+
+    # Handle the last split
     if split_start < num_pages:
         pdf_writer = PdfWriter()
         for i in range(split_start, num_pages):
@@ -78,6 +75,8 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
             pdf_writer.write(output_pdf)
         
         print(f"Created: {output_filename}")
+
+
 
 
 # Example usage:
