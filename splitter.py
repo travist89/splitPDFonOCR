@@ -1,13 +1,30 @@
 import fitz  # PyMuPDF
 from pdf2image import convert_from_path
 import pytesseract
-from PyPDF2 import PdfReader, PdfWriter
+from PyPDF2 import PdfReader, PdfWriter, PdfMerger
 import os
 
 def ocr_text_from_image(image):
     """Extract text from an image using OCR."""
     return pytesseract.image_to_string(image)
 
+def merge_copy_files(output_dir):
+    """Merges files with "(copy)" in their names in the given directory."""
+    pdf_files = [f for f in os.listdir(output_dir) if f.endswith('.pdf')]
+    for filename in pdf_files:
+        if "(copy" in filename:
+            base_name = filename.split(" (copy")[0] + ".pdf"
+            base_path = os.path.join(output_dir, base_name)
+            copy_path = os.path.join(output_dir, filename)
+
+            merger = PdfMerger()
+            merger.append(base_path)
+            merger.append(copy_path)
+            merger.write(base_path)
+            merger.close()
+
+            os.remove(copy_path)  # Remove the copy file
+            print(f"Merged {filename} into {base_name}")
 
 def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
     # Create output directory if it doesn't exist
@@ -35,8 +52,13 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
         text = ocr_text_from_image(image)
 
         if search_text in text:
-            start_index = text.index(search_text) + len(search_text)
-            extracted_text = text[start_index : start_index + 8].strip()
+            # Find the last occurrence of search_text in the text
+            last_occurrence_index = text.rfind(search_text) 
+            start_index = last_occurrence_index + len(search_text)
+            extracted_text = text[start_index : start_index + 3].strip()
+
+            # start_index = text.index(search_text) + len(search_text)
+            # extracted_text = text[start_index : start_index + 8].strip()
 
             for char in ['<', '>', ':', '"', '/', '\\', '|', '?', '*', '\n']:
                 extracted_text = extracted_text.replace(char, '')
@@ -78,6 +100,7 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
         with open(output_filename, 'wb') as output_pdf:
             pdf_writer.write(output_pdf)
         print(f"Created: {output_filename}")
+    merge_copy_files(output_dir)
 
 # Example usage:
 pdf_path = 'example.pdf'  # Replace with your PDF file path
