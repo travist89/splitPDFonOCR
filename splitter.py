@@ -38,7 +38,7 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
             start_index = text.index(search_text) + len(search_text)
             extracted_text = text[start_index : start_index + 8].strip()
 
-            for char in ['<', '>', ':', '"', '/', '\\', '|', '?', '*']:
+            for char in ['<', '>', ':', '"', '/', '\\', '|', '?', '*', '\n']:
                 extracted_text = extracted_text.replace(char, '')
 
             if extracted_text_for_naming and page_num > split_start:
@@ -81,6 +81,6 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
 
 # Example usage:
 pdf_path = 'example.pdf'  # Replace with your PDF file path
-search_text = 'Statement Date '  # Replace with the text you want to split by
+search_text = 'Employee Number: '  # Replace with the text you want to split by
 output_dir = 'output'  # Directory to save the split files
 split_pdf_by_ocr_text(pdf_path, search_text, output_dir)
