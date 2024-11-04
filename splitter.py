@@ -6,7 +6,7 @@ import os
 
 def ocr_text_from_image(image):
     """Extract text from an image using OCR."""
-    return pytesseract.image_to_string(image)
+    return pytesseract.image_to_string(image, config='--psm 6')
 
 def merge_copy_files(output_dir):
     """Merges files with "(copy)" in their names in the given directory."""
