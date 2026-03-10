@@ -1,3 +1,7 @@
 venv/
 *.pdf
 output/
+build/
+dist/
+*.spec
+*.exe
