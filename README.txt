@@ -55,7 +55,7 @@ This process bundles the script, Python interpreter, and all dependencies (inclu
     **IMPORTANT:** You MUST replace the example paths for Poppler and Tesseract with the actual paths on your machine. To find a path, locate the folder in File Explorer and copy it from the address bar.
 
     ```
-    pyinstaller --onefile --add-data "C:\poppler-24.02.0;Poppler" --add-data "C:\Program Files\Tesseract-OCR;Tesseract-OCR" splitter.py
+    pyinstaller --clean --onefile --noconsole --icon=top.ico --splash=top.jpg --add-data "top.ico;." --add-data "C:\poppler-24.02.0\Library\bin;Poppler\Library\bin" --add-data "C:\Program Files\Tesseract-OCR;Tesseract-OCR" splitter.py
     ```
 
 3.  The final `splitter.exe` will be located in the `dist` folder. It will be large but is fully self-contained and portable.

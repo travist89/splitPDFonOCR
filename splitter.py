@@ -1,9 +1,29 @@
+import os
+import sys
+import subprocess
+
+# --- HIDE SUBPROCESS CONSOLE WINDOWS ON WINDOWS ---
+# When running in a GUI or without a console, libraries that use subprocess
+# (like pdf2image and pytesseract) will briefly flash a cmd window. 
+# We patch subprocess.Popen to prevent this.
+if os.name == 'nt':
+    _original_popen = subprocess.Popen
+
+    def _patched_popen(*args, **kwargs):
+        if 'creationflags' not in kwargs:
+            # CREATE_NO_WINDOW = 0x08000000
+            kwargs['creationflags'] = 0x08000000
+        return _original_popen(*args, **kwargs)
+
+    subprocess.Popen = _patched_popen
+
 import fitz  # PyMuPDF
 from pdf2image import convert_from_path
 import pytesseract
 from PyPDF2 import PdfReader, PdfWriter, PdfMerger
-import os
-import sys
+import threading
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
 
 # --- SETUP FOR PORTABILITY ---
 def setup_dependencies():
@@ -87,6 +107,9 @@ def generate_audit_report(output_dir):
     """Generates an HTML report with thumbnails of the split PDFs for easy verification."""
     print("\nGenerating HTML Audit Report...")
     
+    audit_dir = os.path.join(output_dir, "Audit_Report")
+    os.makedirs(audit_dir, exist_ok=True)
+    
     html_content = """
     <html>
     <head>
@@ -126,7 +149,7 @@ def generate_audit_report(output_dir):
         num_pages = doc.page_count
         
         thumb_filename = f"thumb_{emp_number}.png"
-        thumb_path = os.path.join(output_dir, thumb_filename)
+        thumb_path = os.path.join(audit_dir, thumb_filename)
         
         # Render the first page at 20% scale
         page = doc.load_page(0)
@@ -146,9 +169,9 @@ def generate_audit_report(output_dir):
             
         html_content += f"""
             <tr {row_class}>
-                <td><a href="{filename}" target="_blank"><img src="{thumb_filename}" alt="Thumbnail"></a></td>
+                <td><a href="../{filename}" target="_blank"><img src="{thumb_filename}" alt="Thumbnail"></a></td>
                 <td><strong>{emp_number}</strong></td>
-                <td><a href="{filename}" target="_blank">{filename}</a></td>
+                <td><a href="../{filename}" target="_blank">{filename}</a></td>
                 <td>{num_pages}</td>
                 <td class="note">{notes}</td>
             </tr>
@@ -160,13 +183,13 @@ def generate_audit_report(output_dir):
     </html>
     """
     
-    report_path = os.path.join(output_dir, "_Audit_Report.html")
+    report_path = os.path.join(audit_dir, "_Audit_Report.html")
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(html_content)
         
     print(f"Audit report successfully created: {report_path}")
 
-def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
+def split_pdf_by_ocr_text(pdf_path, search_text, output_dir, progress_callback=None):
     """Splits a PDF into multiple files based on OCR text found on each page.
 
     This is the core logic of the application. It iterates through a PDF, performs
@@ -197,6 +220,10 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
     extracted_text_for_naming = ""
 
     for page_num in range(num_pages):
+        # Update the progress bar for the current page
+        if progress_callback:
+            progress_callback(page_num + 1, num_pages)
+
         page = document.load_page(page_num)
 
         # Convert the current PDF page to an image object for OCR.
@@ -276,33 +303,131 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
     # After all splits are done, merge any files that were created with "(copy)" in their name.
     merge_copy_files(output_dir)
     
+    if progress_callback:
+        progress_callback(-1, -1)
+        
     # Finally, generate the HTML Audit report so users can easily verify the splits.
     generate_audit_report(output_dir)
 
-if __name__ == "__main__":
-    # This block runs when the script is executed directly.
-    print("--- OCR PDF SPLITTER ---")
-    
-    # Interactive inputs with defaults
-    pdf_input = input("Enter PDF file name (default: example.pdf): ").strip()
-    pdf_path = pdf_input if pdf_input else 'example.pdf'
-    
-    text_input = input("Enter search text to split by (default: Employee Number:): ").strip()
-    search_text = text_input if text_input else 'Employee Number:'
-    
-    dir_input = input("Enter output directory (default: output): ").strip()
-    output_dir = dir_input if dir_input else 'output'
+def run_gui():
+    """Launches the Tkinter Graphical User Interface."""
+    root = tk.Tk()
+    root.title("OCR PDF Splitter")
+    root.geometry("550x290")
+    root.resizable(False, False)
 
-    # Basic validation and error handling.
-    if os.path.exists(pdf_path):
-        try:
-            split_pdf_by_ocr_text(pdf_path, search_text, output_dir)
-            print("\nSUCCESS: Processing complete!")
-        except Exception as e:
-            # Catch and display any errors that occur during processing.
-            print(f"\nERROR: {e}")
+    # --- Set Application Logo ---
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        base_path = sys._MEIPASS
     else:
-        print(f"\nERROR: File '{pdf_path}' not found.")
-    
-    # Keep the console window open after the script finishes so the user can see the output.
-    input("\nPress Enter to exit...")
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        
+    logo_path = os.path.join(base_path, 'top.ico')
+    if os.path.exists(logo_path):
+        try:
+            root.iconbitmap(logo_path)
+        except Exception as e:
+            print(f"Could not load logo: {e}")
+
+    # Variables to hold user input
+    pdf_path_var = tk.StringVar()
+    search_text_var = tk.StringVar(value='Employee Number:')
+    output_dir_var = tk.StringVar(value=os.path.join(os.getcwd(), 'output'))
+
+    def browse_pdf():
+        filepath = filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
+        if filepath:
+            pdf_path_var.set(filepath)
+
+    def choose_folder():
+        folderpath = filedialog.askdirectory()
+        if folderpath:
+            output_dir_var.set(folderpath)
+
+    def start_processing():
+        pdf_path = pdf_path_var.get()
+        search_text = search_text_var.get()
+        output_dir = output_dir_var.get()
+
+        # Input validation
+        if not pdf_path or not os.path.exists(pdf_path):
+            messagebox.showerror("Error", "Please select a valid PDF file.")
+            return
+        if not search_text:
+            messagebox.showerror("Error", "Please enter the search text.")
+            return
+        if not output_dir:
+            messagebox.showerror("Error", "Please select an output folder.")
+            return
+
+        # Update UI state
+        btn_process.config(state=tk.DISABLED)
+        lbl_status.config(text="Status: Processing... Please wait (OCR can take a while).")
+        progress_var.set(0)
+
+        def update_progress(current, total):
+            if current == -1:
+                lbl_status.config(text="Status: Generating Audit Report...")
+                progress_var.set(100)
+            else:
+                progress_var.set((current / total) * 100)
+                lbl_status.config(text=f"Status: Processing page {current} of {total}...")
+
+        def run():
+            try:
+                split_pdf_by_ocr_text(pdf_path, search_text, output_dir, lambda c, t: root.after(0, update_progress, c, t))
+                # Use root.after to safely update the GUI from the background thread
+                root.after(0, lambda: messagebox.showinfo("Success", "Processing complete!\nPlease check the Audit_Report folder in your output directory."))
+                root.after(0, lambda: lbl_status.config(text="Status: Idle"))
+            except Exception as e:
+                root.after(0, lambda err=e: messagebox.showerror("Error", f"An error occurred:\n{err}"))
+                root.after(0, lambda: lbl_status.config(text="Status: Error"))
+            finally:
+                root.after(0, lambda: btn_process.config(state=tk.NORMAL))
+
+        # Run the heavy OCR process in a background thread so the GUI doesn't freeze
+        threading.Thread(target=run, daemon=True).start()
+
+    # --- UI Layout ---
+    padding = {'padx': 10, 'pady': 10}
+
+    # Row 0: PDF File
+    tk.Label(root, text="PDF File:").grid(row=0, column=0, sticky="e", **padding)
+    tk.Entry(root, textvariable=pdf_path_var, width=50).grid(row=0, column=1, **padding)
+    tk.Button(root, text="Browse...", command=browse_pdf).grid(row=0, column=2, **padding)
+
+    # Row 1: Search Text
+    tk.Label(root, text="Search Text:").grid(row=1, column=0, sticky="e", **padding)
+    tk.Entry(root, textvariable=search_text_var, width=50).grid(row=1, column=1, **padding)
+
+    # Row 2: Output Folder
+    tk.Label(root, text="Output Folder:").grid(row=2, column=0, sticky="e", **padding)
+    tk.Entry(root, textvariable=output_dir_var, width=50).grid(row=2, column=1, **padding)
+    tk.Button(root, text="Choose...", command=choose_folder).grid(row=2, column=2, **padding)
+
+    # Row 3: Process Button
+    btn_process = tk.Button(root, text="Start Processing", command=start_processing, bg="#4CAF50", fg="white", font=("Arial", 10, "bold"))
+    btn_process.grid(row=3, column=0, columnspan=3, pady=(15, 5))
+
+    # Row 4: Progress Bar
+    progress_var = tk.DoubleVar()
+    progress_bar = ttk.Progressbar(root, variable=progress_var, maximum=100)
+    progress_bar.grid(row=4, column=0, columnspan=3, sticky="ew", padx=20, pady=5)
+
+    # Row 5: Status Label
+    lbl_status = tk.Label(root, text="Status: Idle", fg="gray")
+    lbl_status.grid(row=5, column=0, columnspan=3, pady=(0, 10))
+
+    # --- CLOSE SPLASH SCREEN ---
+    # If running as a PyInstaller executable with a splash screen, close it now that the GUI is ready.
+    try:
+        import pyi_splash
+        pyi_splash.close()
+    except ImportError:
+        pass
+
+    # Start the GUI loop
+    root.mainloop()
+
+if __name__ == "__main__":
+    run_gui()
