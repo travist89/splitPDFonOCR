@@ -83,6 +83,89 @@ def merge_copy_files(output_dir):
             os.remove(copy_path)  # Remove the copy file
             print(f"Merged {filename} into {base_name}")
 
+def generate_audit_report(output_dir):
+    """Generates an HTML report with thumbnails of the split PDFs for easy verification."""
+    print("\nGenerating HTML Audit Report...")
+    
+    html_content = """
+    <html>
+    <head>
+        <title>PDF Split Audit Report</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; background-color: #f9f9f9; }
+            h1 { color: #333; }
+            table { border-collapse: collapse; width: 100%; background-color: #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+            th, td { border: 1px solid #ddd; padding: 15px; text-align: left; vertical-align: middle; }
+            th { background-color: #0056b3; color: white; }
+            img { max-width: 120px; border: 1px solid #ccc; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
+            .review-needed { background-color: #fff3cd; }
+            .note { color: #856404; font-weight: bold; }
+        </style>
+    </head>
+    <body>
+        <h1>PDF Split Audit Report</h1>
+        <p>Please review the generated files below. Click on a file name or thumbnail to open the PDF.</p>
+        <table>
+            <tr>
+                <th>Thumbnail (Page 1)</th>
+                <th>Extracted ID</th>
+                <th>File Name</th>
+                <th>Total Pages</th>
+                <th>Notes / Warnings</th>
+            </tr>
+    """
+    
+    pdf_files = [f for f in os.listdir(output_dir) if f.endswith('.pdf')]
+    
+    for filename in pdf_files:
+        pdf_path = os.path.join(output_dir, filename)
+        emp_number = filename.replace('.pdf', '')
+        
+        # Open PDF to get page count and generate thumbnail
+        doc = fitz.open(pdf_path)
+        num_pages = doc.page_count
+        
+        thumb_filename = f"thumb_{emp_number}.png"
+        thumb_path = os.path.join(output_dir, thumb_filename)
+        
+        # Render the first page at 20% scale
+        page = doc.load_page(0)
+        pix = page.get_pixmap(matrix=fitz.Matrix(0.2, 0.2))
+        pix.save(thumb_path)
+        doc.close()
+        
+        # Flag suspicious entries requiring human review
+        notes = ""
+        row_class = ""
+        if len(emp_number) != 3 or not emp_number.isdigit():
+            notes += "⚠️ Check ID format. "
+            row_class = 'class="review-needed"'
+        if num_pages > 20:  # Flag if an employee record seems suspiciously long
+            notes += "⚠️ Unusually high page count. "
+            row_class = 'class="review-needed"'
+            
+        html_content += f"""
+            <tr {row_class}>
+                <td><a href="{filename}" target="_blank"><img src="{thumb_filename}" alt="Thumbnail"></a></td>
+                <td><strong>{emp_number}</strong></td>
+                <td><a href="{filename}" target="_blank">{filename}</a></td>
+                <td>{num_pages}</td>
+                <td class="note">{notes}</td>
+            </tr>
+        """
+        
+    html_content += """
+        </table>
+    </body>
+    </html>
+    """
+    
+    report_path = os.path.join(output_dir, "_Audit_Report.html")
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+        
+    print(f"Audit report successfully created: {report_path}")
+
 def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
     """Splits a PDF into multiple files based on OCR text found on each page.
 
@@ -192,6 +275,9 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir):
         print(f"Created: {output_filename}")
     # After all splits are done, merge any files that were created with "(copy)" in their name.
     merge_copy_files(output_dir)
+    
+    # Finally, generate the HTML Audit report so users can easily verify the splits.
+    generate_audit_report(output_dir)
 
 if __name__ == "__main__":
     # This block runs when the script is executed directly.
