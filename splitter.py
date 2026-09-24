@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+import re
 
 # --- HIDE SUBPROCESS CONSOLE WINDOWS ON WINDOWS ---
 # When running in a GUI or without a console, libraries that use subprocess
@@ -84,9 +85,48 @@ def ocr_text_from_image(image):
     # '--psm 6' tells Tesseract to assume a single uniform block of text, which can improve accuracy.
     return pytesseract.image_to_string(image, config='--psm 6')
 
+def extract_id_from_text(text, search_text):
+    """Extracts and sanitizes the identifier immediately following search_text.
+    
+    Handles:
+    - OCR noise and artifacts (e.g., '=', '-', ':', '~', '.', etc. before the ID)
+    - Next field labels (e.g., 'Name:' immediately following the ID)
+    - Multi-line layouts (where ID and/or Name is on subsequent lines)
+    - Both short 3-digit employee IDs and longer IDs (up to 15 characters, e.g. fire prevention)
+    - Invalid filename characters
+    """
+    if search_text not in text:
+        return ""
+
+    last_occurrence_index = text.rfind(search_text)
+    start_index = last_occurrence_index + len(search_text)
+    raw = text[start_index:].strip()
+
+    # Strip leading punctuation and OCR artifacts (e.g. '=', '-', ':', '~', '.', etc.)
+    cleaned = re.sub(r'^[=\-_~:.;,\'"`]+\s*', '', raw)
+
+    # Check if a label like 'Name:' or 'Name' follows the ID
+    name_match = re.search(r'\bName\b', cleaned, re.IGNORECASE)
+    if name_match:
+        val = cleaned[:name_match.start()].strip()
+    else:
+        # Otherwise take the first line
+        val = cleaned.splitlines()[0].strip() if cleaned.splitlines() else ""
+
+    # If there are multiple words, take the first word/token (the ID)
+    tokens = val.split()
+    if tokens:
+        val = tokens[0]
+
+    # Sanitize invalid characters for filenames
+    for char in ['<', '>', ':', '"', '/', '\\', '|', '?', '*', '\n', '\r']:
+        val = val.replace(char, '')
+
+    return val[:15].strip()
+
 def merge_copy_files(output_dir):
     """Merges files with "(copy)" in their names in the given directory."""
-    pdf_files = [f for f in os.listdir(output_dir) if f.endswith('.pdf')]
+    pdf_files = sorted([f for f in os.listdir(output_dir) if f.endswith('.pdf')])
     for filename in pdf_files:
         if "(copy" in filename:
             # Example: filename is "123 (copy 1).pdf", base_name becomes "123.pdf"
@@ -94,14 +134,17 @@ def merge_copy_files(output_dir):
             base_path = os.path.join(output_dir, base_name)
             copy_path = os.path.join(output_dir, filename)
 
-            merger = PdfMerger()
-            merger.append(base_path)
-            merger.append(copy_path)
-            merger.write(base_path)
-            merger.close()
+            if os.path.exists(base_path):
+                merger = PdfMerger()
+                merger.append(base_path)
+                merger.append(copy_path)
+                merger.write(base_path)
+                merger.close()
 
-            os.remove(copy_path)  # Remove the copy file
-            print(f"Merged {filename} into {base_name}")
+                os.remove(copy_path)  # Remove the copy file
+                print(f"Merged {filename} into {base_name}")
+            else:
+                os.rename(copy_path, base_path)
 
 def generate_audit_report(output_dir):
     """Generates an HTML report with thumbnails of the split PDFs for easy verification."""
@@ -226,33 +269,24 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir, progress_callback=N
 
         page = document.load_page(page_num)
 
-        # Convert the current PDF page to an image object for OCR.
-        # This is done one page at a time to conserve memory.
-        images = convert_from_path(pdf_path, first_page=page_num+1, last_page=page_num+1)
-        image = images[0]
-
-        # Extract text from image using OCR
-        text = ocr_text_from_image(image)
+        # First attempt to extract digital text directly from the PDF page.
+        # This provides instant processing and 100% accuracy for digitally generated PDFs.
+        text = page.get_text()
+        if search_text not in text:
+            # Fall back to image conversion and Tesseract OCR for scanned PDF pages.
+            # This is done one page at a time to conserve memory.
+            images = convert_from_path(pdf_path, first_page=page_num+1, last_page=page_num+1)
+            image = images[0]
+            text = ocr_text_from_image(image)
 
         # Check if our keyword (e.g., "Employee Number:") exists on the page.
         if search_text in text:
-            # Find the last occurrence of the search text on the page.
-            last_occurrence_index = text.rfind(search_text) 
-            start_index = last_occurrence_index + len(search_text)
-            
-            # Extract the employee number. This logic is designed to be robust:
-            # 1. `text[start_index:]`: Get all text *after* the search term.
-            # 2. `.strip()`: Remove any leading/trailing whitespace. OCR can add unexpected spaces.
-            # 3. `[:3]`: Take the first 3 characters of the result.
-            extracted_text = text[start_index:].strip()[:3]
+            extracted_text = extract_id_from_text(text, search_text)
 
-            # Sanitize the extracted text to ensure it's a valid filename.
-            for char in ['<', '>', ':', '"', '/', '\\', '|', '?', '*', '\n']:
-                extracted_text = extracted_text.replace(char, '')
-
-            # If `extracted_text_for_naming` has a value, it means we have a completed
-            # section that needs to be saved.
-            if extracted_text_for_naming and page_num > split_start:
+            # If `extracted_text_for_naming` has a value and a new employee/ID section begins,
+            # save the completed section for the previous employee.
+            is_new_section = (extracted_text != extracted_text_for_naming) if extracted_text else True
+            if extracted_text_for_naming and is_new_section and page_num > split_start:
                 pdf_writer = PdfWriter()
                 # Add all pages from the start of the current split up to (but not including)
                 # the current page to the writer object.
@@ -290,9 +324,17 @@ def split_pdf_by_ocr_text(pdf_path, search_text, output_dir, progress_callback=N
         for i in range(split_start, num_pages):
             pdf_writer.add_page(pdf_reader.pages[i])
 
-        # Use the last employee number found for the filename.
+        # Use duplicate handling to ensure the last employee is never overwritten
         if extracted_text_for_naming:
-            output_filename = os.path.join(output_dir, f"{extracted_text_for_naming}.pdf")
+            base_filename = f"{extracted_text_for_naming}.pdf"
+            output_filename = os.path.join(output_dir, base_filename)
+            file_exists = os.path.isfile(output_filename)
+            copy_number = 1
+            while file_exists:
+                base_filename = f"{extracted_text_for_naming} (copy {copy_number}).pdf"
+                output_filename = os.path.join(output_dir, base_filename)
+                file_exists = os.path.isfile(output_filename)
+                copy_number += 1
         else:
             # Fallback name if no search text was ever found in the entire document.
             output_filename = os.path.join(output_dir, f'split_1.pdf')
